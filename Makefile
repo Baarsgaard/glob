@@ -14,6 +14,11 @@ export PORT ?= 3000
 open:
 	$(BROWSER) http://localhost:$(PORT)/index.html
 
+.PHONY: go_mod
+go_mod:
+	@go mod download
+	@go mod tidy
+
 # Install ko
 ifeq (,$(shell which ko))
 KO=$(GOBIN)/ko

@@ -9,6 +9,10 @@ lint:
 run:
 	@DEBUG=1 go run ./...
 
+export PORT ?= 3000
+.PHONY: open
+open:
+	$(BROWSER) http://localhost:$(PORT)/index.html
 
 # Install ko
 ifeq (,$(shell which ko))

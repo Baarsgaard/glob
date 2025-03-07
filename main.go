@@ -67,7 +67,6 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// TODO Refactor
 func uploadFormFile(w http.ResponseWriter, r *http.Request) {
 	log := log.With(
 		zap.String("method", r.Method),
@@ -197,7 +196,6 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	dbg := os.Getenv("DEBUG")
-
 	var err error
 	if dbg != "" {
 		log, err = zap.NewDevelopment()
@@ -209,6 +207,11 @@ func main() {
 	}
 	defer log.Sync() // nolint:errcheck
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
 	log = log.Named("Glob")
 
 	// TODO Make storage path configurable
@@ -218,7 +221,7 @@ func main() {
 	}
 
 	// GET/PUT/POST/DELETE
-	// POST behaves like a PUT, ergonomic over correctness
+	// POST behaves like a PUT, most don't care about the difference and supports forms
 	http.HandleFunc("GET /", listFiles)
 	http.HandleFunc("GET /{file}", getFile)
 	http.HandleFunc("POST /", uploadFormFile)
@@ -227,9 +230,9 @@ func main() {
 	http.HandleFunc("PUT /{file}", uploadFile)
 	http.HandleFunc("DELETE /{file}", deleteFile)
 
-	fmt.Println("Server starting on: http://0.0.0.0:3000")
-	// TODO Make port configurable
-	err = http.ListenAndServe(":3000", nil)
+	fmt.Println("Server starting on: http://0.0.0.0:" + port)
+
+	err = http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		fmt.Println(err.Error())
 	}

@@ -1,0 +1,9 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: glob
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - glob.example.com

@@ -15,12 +15,13 @@ import (
 
 //go:embed index.html
 var index string
+var path string
 var log *zap.Logger
 
 func writeToDisk(filename string, content []byte) error {
 	// Open and truncate or create file
-	// TODO Make storage path configurable
-	file, err := os.OpenFile("./files/"+filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
+	filepath := filepath.Join(path, filename)
+	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
 	if err != nil {
 		return err
 	}
@@ -32,7 +33,7 @@ func writeToDisk(filename string, content []byte) error {
 		return err
 	}
 
-	log.Debug("Content written to: " + filename)
+	log.Debug("Content written to: " + filepath)
 
 	return nil
 }
@@ -126,14 +127,14 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 	isJson := false
 	switch accept {
 	case "text/html": // Browser
-		http.ServeFile(w, r, "./files")
+		http.ServeFile(w, r, path)
 	case "application/json":
 		fallthrough
 	case "text/json": // Asked for
 		isJson = true
 		fallthrough
 	default: // */* Curl and anything else
-		entries, err := os.ReadDir("./files")
+		entries, err := os.ReadDir(path)
 		if err != nil {
 			log.Error(err.Error())
 			http.Error(w, http.StatusText(http.StatusInternalServerError)+err.Error(), http.StatusInternalServerError)
@@ -175,8 +176,10 @@ func getFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.ServeFile(w, r, filepath.Join("files", file))
-	log.Debug("Served " + file)
+	filepath := filepath.Join(path, file)
+
+	log.Debug("Serving " + filepath)
+	http.ServeFile(w, r, filepath)
 }
 
 func deleteFile(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +188,8 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 		zap.String("path", r.URL.Path),
 	)
 	file := r.PathValue("file")
-	err := os.RemoveAll(file)
+	filepath := filepath.Join(path, file)
+	err := os.RemoveAll(filepath)
 	if err != nil {
 		log.Error(err.Error())
 		http.Error(w, "Failed to delete file:"+err.Error(), http.StatusInternalServerError)
@@ -205,6 +209,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err.Error())
 	}
+	log = log.Named("Glob")
 	defer log.Sync() // nolint:errcheck
 
 	port := os.Getenv("PORT")
@@ -212,10 +217,13 @@ func main() {
 		port = "3000"
 	}
 
-	log = log.Named("Glob")
+	path = os.Getenv("GLOB_PATH")
+	if path == "" {
+		path = filepath.Join(".", "globs")
 
-	// TODO Make storage path configurable
-	err = os.MkdirAll("./files", os.ModePerm)
+	}
+
+	err = os.MkdirAll(path, os.ModePerm)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
@@ -230,7 +238,7 @@ func main() {
 	http.HandleFunc("PUT /{file}", uploadFile)
 	http.HandleFunc("DELETE /{file}", deleteFile)
 
-	fmt.Println("Server starting on: http://0.0.0.0:" + port)
+	fmt.Println("Glob listening on: http://0.0.0.0:" + port)
 
 	err = http.ListenAndServe(":"+port, nil)
 	if err != nil {

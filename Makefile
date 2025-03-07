@@ -33,7 +33,7 @@ $(KO):
 start-kind:
 	kind create cluster
 
-.PHONY: ko-build
+.PHONY: build-ko
 build-ko:
 	KO_DOCKER_REPO='ko.local/baarsgaard/glob' $(KO) build
 

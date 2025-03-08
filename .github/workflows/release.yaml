@@ -5,9 +5,6 @@ on:
     tags:
       - "*"
 
-env:
-  KO_DOCKER_REPO: "ghcr.io/${{ github.repository }}"
-
 permissions:
   packages: write
 
@@ -34,6 +31,7 @@ jobs:
 
       - name: Build and push
         run: |
+          export KO_DOCKER_REPO="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           ko build --bare --platform linux/arm64,linux/arm/v7,linux/amd64,linux/ppc64le -t "${{ github.ref_name }}" \
             --image-label org.opencontainers.image.title=baarsgaard/glob \
             --image-label org.opencontainers.image.description="Minimal blob repository without bells and whistles" \

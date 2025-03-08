@@ -32,7 +32,7 @@ jobs:
       - name: Build and push
         run: |
           export KO_DOCKER_REPO="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          ko build --bare --platform linux/arm64,linux/arm/v7,linux/amd64,linux/ppc64le -t "${{ github.ref_name }}" \
+          ko build --bare --platform linux/arm64,linux/arm/v7,linux/amd64,linux/ppc64le -t "${{ github.ref_name }},latest" \
             --image-label org.opencontainers.image.title=baarsgaard/glob \
             --image-label org.opencontainers.image.description="Minimal blob repository without bells and whistles" \
             --image-label org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }} \

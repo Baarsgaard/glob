@@ -36,3 +36,13 @@ curl localhost:3000/
 # JSON list
 curl localhost:3000/ -H 'Accept: text/json'
 ```
+
+## Quickstart
+
+```bash
+docker run --name glob -d --rm \
+    --env 'GLOB_PATH=/globs' \
+    --volume "$PWD/globs:/globs" \
+    --publish '3000:3000' \
+    ghcr.io/baarsgaard/glob:latest
+```

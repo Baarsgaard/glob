@@ -19,34 +19,28 @@ var path string
 var log *zap.Logger
 
 func writeToDisk(filename string, content []byte) error {
+	filename = filepath.Join(path, filename)
+
 	// Open and truncate or create file
-	filepath := filepath.Join(path, filename)
-	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
 	if err != nil {
-		return err
+		return fmt.Errorf("Opening file: %w", err)
 	}
 	defer file.Close()
 
 	// Write file
 	_, err = file.Write(content)
 	if err != nil {
-		return err
+		return fmt.Errorf("Writing to file: %w", err)
 	}
-
-	log.Debug("Content written to: " + filepath)
 
 	return nil
 }
 
-func uploadFile(w http.ResponseWriter, r *http.Request) {
-	log := log.With(
-		zap.String("method", r.Method),
-		zap.String("path", r.URL.Path),
-	)
-
+func uploadBody(w http.ResponseWriter, r *http.Request) {
 	if r.Body == nil {
 		log.Error("Bad request, empty body")
-		http.Error(w, http.StatusText(http.StatusBadRequest)+"Empty body", http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest)+": Empty body", http.StatusBadRequest)
 		return
 	}
 
@@ -54,32 +48,29 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Error(err.Error())
-		http.Error(w, http.StatusText(http.StatusBadRequest)+err.Error(), http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	err = writeToDisk(filename, body)
 	if err != nil {
 		log.Error(err.Error())
-		http.Error(w, http.StatusText(http.StatusInternalServerError)+err.Error(), http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Debug("Body content written to: " + filename)
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func uploadFormFile(w http.ResponseWriter, r *http.Request) {
-	log := log.With(
-		zap.String("method", r.Method),
-		zap.String("path", r.URL.Path),
-	)
-
+func uploadForm(w http.ResponseWriter, r *http.Request) {
 	// Upload limit: 10Mi
 	// TODO Make configurable
 	err := r.ParseMultipartForm(0xA00000)
 	if err != nil {
 		log.Error(err.Error())
-		http.Error(w, http.ErrContentLength.Error()+err.Error(), http.StatusBadRequest)
+		http.Error(w, http.ErrContentLength.Error()+": "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -87,7 +78,7 @@ func uploadFormFile(w http.ResponseWriter, r *http.Request) {
 	reqFile, handler, err := r.FormFile("filename")
 	if err != nil {
 		log.Error(err.Error())
-		http.Error(w, http.ErrMissingFile.Error()+err.Error(), http.StatusBadRequest)
+		http.Error(w, http.ErrMissingFile.Error()+": "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer reqFile.Close()
@@ -109,19 +100,16 @@ func uploadFormFile(w http.ResponseWriter, r *http.Request) {
 	err = writeToDisk(handler.Filename, fileBytes)
 	if err != nil {
 		log.Error(err.Error())
-		http.Error(w, http.StatusText(http.StatusInternalServerError)+err.Error(), http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Debug("Form content written to: " + handler.Filename)
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func listFiles(w http.ResponseWriter, r *http.Request) {
-	log := log.With(
-		zap.String("method", r.Method),
-		zap.String("path", r.URL.Path),
-	)
-
 	accept := strings.Split(r.Header.Get("Accept"), ",")[0]
 	log.Debug("Accept Header:" + accept)
 	isJson := false
@@ -137,7 +125,7 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 		entries, err := os.ReadDir(path)
 		if err != nil {
 			log.Error(err.Error())
-			http.Error(w, http.StatusText(http.StatusInternalServerError)+err.Error(), http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -156,7 +144,7 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 		json, err := json.Marshal(files)
 		if err != nil {
 			log.Error(err.Error())
-			http.Error(w, http.StatusText(http.StatusInternalServerError)+err.Error(), http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -165,11 +153,6 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func getFile(w http.ResponseWriter, r *http.Request) {
-	log := log.With(
-		zap.String("method", r.Method),
-		zap.String("path", r.URL.Path),
-	)
-
 	file := r.PathValue("file")
 	if file == "index.html" {
 		fmt.Fprint(w, index)
@@ -183,19 +166,49 @@ func getFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteFile(w http.ResponseWriter, r *http.Request) {
-	log := log.With(
-		zap.String("method", r.Method),
-		zap.String("path", r.URL.Path),
-	)
 	file := r.PathValue("file")
 	filepath := filepath.Join(path, file)
 	err := os.RemoveAll(filepath)
 	if err != nil {
 		log.Error(err.Error())
-		http.Error(w, "Failed to delete file:"+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to delete file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	log.Debug("Deleted " + file)
+}
+
+func logger(h http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log := log.With(
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+		)
+		log.Debug("Response received")
+		defer log.Debug("Response served")
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+func debugStart() error {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	log.Sugar().Debugf("%v %v %v %v", stat.Mode(), stat.Size(), stat.ModTime(), stat.Name())
+
+	// Validate write permissions at startup
+	testFile := "__TEST_FILE__"
+	err = writeToDisk(testFile, []byte("test"))
+	if err != nil {
+		return err
+	}
+	err = os.RemoveAll(filepath.Join(path, testFile))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func main() {
@@ -225,23 +238,32 @@ func main() {
 
 	err = os.MkdirAll(path, os.ModePerm)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Fatal(err.Error())
 	}
+
+	if dbg != "" {
+		err := debugStart()
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	}
+
+	mux := http.NewServeMux()
 
 	// GET/PUT/POST/DELETE
 	// POST behaves like a PUT, most don't care about the difference and supports forms
-	http.HandleFunc("GET /", listFiles)
-	http.HandleFunc("GET /{file}", getFile)
-	http.HandleFunc("POST /", uploadFormFile)
-	http.HandleFunc("POST /{file}", uploadFile)
-	http.HandleFunc("PUT /", uploadFormFile)
-	http.HandleFunc("PUT /{file}", uploadFile)
-	http.HandleFunc("DELETE /{file}", deleteFile)
+	mux.Handle("GET /", logger(listFiles))
+	mux.Handle("GET /{file}", logger(getFile))
+	mux.Handle("PUT /", logger(uploadForm))
+	mux.Handle("PUT /{file}", logger(uploadBody))
+	mux.Handle("POST /", logger(uploadForm))
+	mux.Handle("POST /{file}", logger(uploadBody))
+	mux.Handle("DELETE /{file}", logger(deleteFile))
 
-	fmt.Println("Glob listening on: http://0.0.0.0:" + port)
+	log.Info("Listening on: http://0.0.0.0:" + port)
 
-	err = http.ListenAndServe(":"+port, nil)
+	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Fatal(err.Error())
 	}
 }

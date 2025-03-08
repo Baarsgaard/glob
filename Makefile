@@ -35,9 +35,9 @@ start-kind:
 
 .PHONY: build-ko
 build-ko:
-	KO_DOCKER_REPO='ko.local/baarsgaard/glob' $(KO) build
+	KO_DOCKER_REPO='ko.local/baarsgaard' $(KO) build --base-import-paths
 
 export KIND_CLUSTER_NAME ?= kind
 .PHONY: ko-build-kind
 ko-build-kind:
-	KO_DOCKER_REPO='kind.local/baarsgaard/glob'	$(KO) build
+	KO_DOCKER_REPO='kind.local/baarsgaard' $(KO) build --base-import-paths

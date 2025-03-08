@@ -1,0 +1,17 @@
+services:
+  glob:
+    environment:
+      GLOB_PATH: "/globs"
+      DEBUG: "1"
+    image: ghcr.io/baarsgaard/glob:latest
+    # image: ko.local/baarsgaard/glob:latest
+    container_name: glob
+    # restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - "glob_data:/globs/:rw"
+
+volumes:
+  glob_data:
+    name: glob_data

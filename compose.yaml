@@ -3,6 +3,7 @@ services:
     environment:
       GLOB_PATH: "/globs"
       DEBUG: "1"
+      SIZE_LIMIT_MB: "10"
     image: ghcr.io/baarsgaard/glob:latest
     # image: ko.local/baarsgaard/glob:latest
     container_name: glob

@@ -3,11 +3,13 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
@@ -17,6 +19,7 @@ import (
 var index string
 var path string
 var log *zap.Logger
+var sizeLimitBytes int64
 
 func writeToDisk(filename string, content []byte) error {
 	filename = filepath.Join(path, filename)
@@ -44,10 +47,17 @@ func uploadBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Wrap normal io.ReadCloser in MaxBytesReader
+	r.Body = http.MaxBytesReader(w, r.Body, sizeLimitBytes)
+
 	filename := r.PathValue("file")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Error(err.Error())
+		var maxBytesError *http.MaxBytesError
+		if errors.Is(err, maxBytesError) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -65,9 +75,7 @@ func uploadBody(w http.ResponseWriter, r *http.Request) {
 }
 
 func uploadForm(w http.ResponseWriter, r *http.Request) {
-	// Upload limit: 10Mi
-	// TODO Make configurable
-	err := r.ParseMultipartForm(0xA00000)
+	err := r.ParseMultipartForm(sizeLimitBytes)
 	if err != nil {
 		log.Error(err.Error())
 		http.Error(w, http.ErrContentLength.Error()+": "+err.Error(), http.StatusBadRequest)
@@ -233,7 +241,17 @@ func main() {
 	path = os.Getenv("GLOB_PATH")
 	if path == "" {
 		path = filepath.Join(".", "globs")
+	}
 
+	sizeLimitMbEnvVar := os.Getenv("SIZE_LIMIT_MB")
+	if sizeLimitMbEnvVar == "" {
+		sizeLimitBytes = 10 << 20 // Default 10Mi
+	} else {
+		sizeLimitMb, err := strconv.Atoi(sizeLimitMbEnvVar)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		sizeLimitBytes = int64(sizeLimitMb) << 20
 	}
 
 	err = os.MkdirAll(path, os.ModePerm)
@@ -248,10 +266,9 @@ func main() {
 		}
 	}
 
-	mux := http.NewServeMux()
-
 	// GET/PUT/POST/DELETE
 	// POST behaves like a PUT, most don't care about the difference and supports forms
+	mux := http.NewServeMux()
 	mux.Handle("GET /", logger(listFiles))
 	mux.Handle("GET /{file}", logger(getFile))
 	mux.Handle("PUT /", logger(uploadForm))
@@ -260,9 +277,15 @@ func main() {
 	mux.Handle("POST /{file}", logger(uploadBody))
 	mux.Handle("DELETE /{file}", logger(deleteFile))
 
+	server := http.Server{
+		Addr:           ":" + port,
+		Handler:        mux,
+		MaxHeaderBytes: int(sizeLimitBytes),
+	}
+
 	log.Info("Listening on: http://0.0.0.0:" + port)
 
-	err = http.ListenAndServe(":"+port, mux)
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err.Error())
 	}

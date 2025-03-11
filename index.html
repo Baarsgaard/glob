@@ -24,5 +24,21 @@
       <br/>
       <input type="submit" value="Upload" />
     </form>
+    <pre>
+      <code>
+# Uploading
+curl -X POST localhost:3000/filename.ext -d 'hello world!'
+curl localhost:3000/ -F file=@filename.ext
+
+# Retrieving
+curl localhost:3000/filename.ext
+
+# List files
+curl localhost:3000/
+
+# JSON list
+curl localhost:3000/ -H 'Accept: application/json,text/json'
+      </code>
+    </pre>
   </body>
 </html>

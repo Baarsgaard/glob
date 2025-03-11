@@ -28,7 +28,7 @@ Example curl commands or just open it in the browser `http://localhost:3000/inde
 curl -X POST localhost:3000/filename.ext -d 'hello world!'
 curl localhost:3000/ -F file=@filename.ext
 
-# Retrieving 
+# Retrieving
 curl localhost:3000/filename.ext
 
 # List files

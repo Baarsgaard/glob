@@ -83,7 +83,7 @@ func uploadForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get reqFile form fields
-	reqFile, handler, err := r.FormFile("filename")
+	reqFile, handler, err := r.FormFile("file")
 	if err != nil {
 		log.Error(err.Error())
 		http.Error(w, http.ErrMissingFile.Error()+": "+err.Error(), http.StatusBadRequest)

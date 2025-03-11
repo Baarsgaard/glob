@@ -26,21 +26,23 @@ Example curl commands or just open it in the browser `http://localhost:3000/inde
 ```bash
 # Uploading
 curl -X POST localhost:3000/filename.ext -d 'hello world!'
-curl -v -F file=@filename.ext localhost:3000/
+curl localhost:3000/ -F file=@filename.ext
 
 # Retrieving 
 curl localhost:3000/filename.ext
 
 # List files
 curl localhost:3000/
+
 # JSON list
-curl localhost:3000/ -H 'Accept: text/json'
+curl localhost:3000/ -H 'Accept: application/json,text/json'
 ```
 
 ## Quickstart
 
 ```bash
-docker run --name glob -d --rm \
+docker run --name glob \
+    --detach --rm \
     --env 'GLOB_PATH=/globs' \
     --volume "$PWD/globs:/globs" \
     --publish '3000:3000' \

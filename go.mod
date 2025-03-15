@@ -1,6 +1,6 @@
 module github.com/baarsgaard/glob
 
-go 1.23.3
+go 1.24.1
 
 require go.uber.org/zap v1.27.0
 

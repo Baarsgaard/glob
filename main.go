@@ -21,20 +21,25 @@ var path string
 var log *zap.Logger
 var sizeLimitBytes int64
 
+func internalServerErr(w http.ResponseWriter, err error) {
+	log.Error(err.Error())
+	http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
+}
+
 func writeToDisk(filename string, content []byte) error {
 	filename = filepath.Join(path, filename)
 
 	// Open and truncate or create file
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
 	if err != nil {
-		return fmt.Errorf("Opening file: %w", err)
+		return fmt.Errorf("opening file: %w", err)
 	}
-	defer file.Close()
+	defer file.Close() // nolint:errcheck
 
 	// Write file
 	_, err = file.Write(content)
 	if err != nil {
-		return fmt.Errorf("Writing to file: %w", err)
+		return fmt.Errorf("writing to file: %w", err)
 	}
 
 	return nil
@@ -64,8 +69,7 @@ func uploadBody(w http.ResponseWriter, r *http.Request) {
 
 	err = writeToDisk(filename, body)
 	if err != nil {
-		log.Error(err.Error())
-		http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
+		internalServerErr(w, err)
 		return
 	}
 
@@ -89,7 +93,7 @@ func uploadForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.ErrMissingFile.Error()+": "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer reqFile.Close()
+	defer reqFile.Close() // nolint:errcheck
 
 	// read file contents
 	fileBytes, err := io.ReadAll(reqFile)
@@ -107,8 +111,7 @@ func uploadForm(w http.ResponseWriter, r *http.Request) {
 
 	err = writeToDisk(handler.Filename, fileBytes)
 	if err != nil {
-		log.Error(err.Error())
-		http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
+		internalServerErr(w, err)
 		return
 	}
 
@@ -124,22 +127,25 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 	switch accept {
 	case "text/html": // Browser
 		http.ServeFile(w, r, path)
-	case "application/json":
+	case "application/json": // Requested
 		fallthrough
-	case "text/json": // Asked for
+	case "text/json":
 		isJson = true
 		fallthrough
 	default: // */* Curl and anything else
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			log.Error(err.Error())
-			http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
+			internalServerErr(w, err)
 			return
 		}
 
 		if !isJson {
 			for _, entry := range entries {
-				fmt.Fprintln(w, entry.Name())
+				_, err := fmt.Fprintln(w, entry.Name())
+				if err != nil {
+					internalServerErr(w, err)
+					return
+				}
 			}
 			return
 		}
@@ -151,23 +157,30 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 
 		json, err := json.Marshal(files)
 		if err != nil {
-			log.Error(err.Error())
-			http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
+			internalServerErr(w, err)
 			return
 		}
 
-		fmt.Fprint(w, string(json))
+		_, err = fmt.Fprint(w, string(json))
+		if err != nil {
+			internalServerErr(w, err)
+			return
+		}
 	}
 }
 
 func getFile(w http.ResponseWriter, r *http.Request) {
 	file := r.PathValue("file")
+	filepath := filepath.Join(path, file)
+
 	if file == "index.html" {
-		fmt.Fprint(w, index)
+		_, err := fmt.Fprint(w, index)
+		if err != nil {
+			internalServerErr(w, err)
+			return
+		}
 		return
 	}
-
-	filepath := filepath.Join(path, file)
 
 	log.Debug("Serving " + filepath)
 	http.ServeFile(w, r, filepath)
@@ -178,8 +191,7 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 	filepath := filepath.Join(path, file)
 	err := os.RemoveAll(filepath)
 	if err != nil {
-		log.Error(err.Error())
-		http.Error(w, "Failed to delete file: "+err.Error(), http.StatusInternalServerError)
+		internalServerErr(w, fmt.Errorf("failed to delete file: %w", err))
 		return
 	}
 	log.Debug("Deleted " + file)
@@ -243,17 +255,6 @@ func main() {
 		path = filepath.Join(".", "globs")
 	}
 
-	sizeLimitMbEnvVar := os.Getenv("SIZE_LIMIT_MB")
-	if sizeLimitMbEnvVar == "" {
-		sizeLimitBytes = 10 << 20 // Default 10Mi
-	} else {
-		sizeLimitMb, err := strconv.Atoi(sizeLimitMbEnvVar)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		sizeLimitBytes = int64(sizeLimitMb) << 20
-	}
-
 	err = os.MkdirAll(path, os.ModePerm)
 	if err != nil {
 		log.Fatal(err.Error())
@@ -264,6 +265,17 @@ func main() {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
+	}
+
+	sizeLimitMbEnvVar := os.Getenv("SIZE_LIMIT_MB")
+	if sizeLimitMbEnvVar == "" {
+		sizeLimitBytes = 10 << 20 // Default 10Mi
+	} else {
+		sizeLimitMb, err := strconv.Atoi(sizeLimitMbEnvVar)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		sizeLimitBytes = int64(sizeLimitMb) << 20
 	}
 
 	// GET/PUT/POST/DELETE

@@ -6,23 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"go.uber.org/zap"
+	"time"
 )
 
-//go:embed index.html
-var index string
-var path string
-var log *zap.Logger
-var sizeLimitBytes int64
+var (
+	//go:embed index.html
+	index          string
+	path           string
+	sizeLimitBytes int64
+)
 
 func internalServerErr(w http.ResponseWriter, err error) {
-	log.Error(err.Error())
+	slog.Error(err.Error())
 	http.Error(w, http.StatusText(http.StatusInternalServerError)+": "+err.Error(), http.StatusInternalServerError)
 }
 
@@ -47,8 +48,9 @@ func writeToDisk(filename string, content []byte) error {
 
 func uploadBody(w http.ResponseWriter, r *http.Request) {
 	if r.Body == nil {
-		log.Error("Bad request, empty body")
+		slog.Error("Bad request, empty body")
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": Empty body", http.StatusBadRequest)
+
 		return
 	}
 
@@ -56,14 +58,18 @@ func uploadBody(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, sizeLimitBytes)
 
 	filename := r.PathValue("file")
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Error(err.Error())
+		slog.Error(err.Error())
+
 		var maxBytesError *http.MaxBytesError
 		if errors.Is(err, maxBytesError) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
+
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
+
 		return
 	}
 
@@ -73,7 +79,7 @@ func uploadBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Debug("Body content written to: " + filename)
+	slog.Debug("Body content written to: " + filename)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -81,16 +87,18 @@ func uploadBody(w http.ResponseWriter, r *http.Request) {
 func uploadForm(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(sizeLimitBytes)
 	if err != nil {
-		log.Error(err.Error())
+		slog.Error(err.Error())
 		http.Error(w, http.ErrContentLength.Error()+": "+err.Error(), http.StatusBadRequest)
+
 		return
 	}
 
 	// Get reqFile form fields
 	reqFile, handler, err := r.FormFile("file")
 	if err != nil {
-		log.Error(err.Error())
+		slog.Error(err.Error())
 		http.Error(w, http.ErrMissingFile.Error()+": "+err.Error(), http.StatusBadRequest)
+
 		return
 	}
 	defer reqFile.Close() // nolint:errcheck
@@ -98,16 +106,13 @@ func uploadForm(w http.ResponseWriter, r *http.Request) {
 	// read file contents
 	fileBytes, err := io.ReadAll(reqFile)
 	if err != nil {
-		log.Error(err.Error())
+		slog.Error(err.Error())
 		http.Error(w, err.Error(), http.StatusBadRequest)
+
 		return
 	}
 
-	log.Debug("File received",
-		zap.String("filename", handler.Filename),
-		zap.Int64("size", handler.Size),
-		zap.String("MIME", http.DetectContentType(fileBytes)),
-	)
+	slog.Debug("File received", "filename", handler.Filename, "size", handler.Size, "MIME", http.DetectContentType(fileBytes))
 
 	err = writeToDisk(handler.Filename, fileBytes)
 	if err != nil {
@@ -115,22 +120,24 @@ func uploadForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Debug("Form content written to: " + handler.Filename)
+	slog.Debug("Form content written to: " + handler.Filename)
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func listFiles(w http.ResponseWriter, r *http.Request) {
 	accept := strings.Split(r.Header.Get("Accept"), ",")[0]
-	log.Debug("Accept Header:" + accept)
-	isJson := false
+	slog.Debug("Accept Header:" + accept)
+
+	isJSON := false
+
 	switch accept {
 	case "text/html": // Browser
 		http.ServeFile(w, r, path)
 	case "application/json": // Requested
 		fallthrough
 	case "text/json":
-		isJson = true
+		isJSON = true
 		fallthrough
 	default: // */* Curl and anything else
 		entries, err := os.ReadDir(path)
@@ -139,7 +146,7 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !isJson {
+		if !isJSON {
 			for _, entry := range entries {
 				_, err := fmt.Fprintln(w, entry.Name())
 				if err != nil {
@@ -147,6 +154,7 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+
 			return
 		}
 
@@ -179,32 +187,31 @@ func getFile(w http.ResponseWriter, r *http.Request) {
 			internalServerErr(w, err)
 			return
 		}
+
 		return
 	}
 
-	log.Debug("Serving " + filepath)
+	slog.Debug("Serving " + filepath)
 	http.ServeFile(w, r, filepath)
 }
 
 func deleteFile(w http.ResponseWriter, r *http.Request) {
 	file := r.PathValue("file")
 	filepath := filepath.Join(path, file)
+
 	err := os.RemoveAll(filepath)
 	if err != nil {
 		internalServerErr(w, fmt.Errorf("failed to delete file: %w", err))
 		return
 	}
-	log.Debug("Deleted " + file)
+
+	slog.Debug("Deleted " + file)
 }
 
 func logger(h http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log := log.With(
-			zap.String("method", r.Method),
-			zap.String("path", r.URL.Path),
-		)
-		log.Debug("Response received")
-		defer log.Debug("Response served")
+		slog.Debug("Response received", "method", r.Method, "path", r.URL.Path)
+		defer slog.Debug("Response served", "method", r.Method, "path", r.URL.Path)
 
 		h.ServeHTTP(w, r)
 	})
@@ -215,14 +222,17 @@ func debugStart() error {
 	if err != nil {
 		return err
 	}
-	log.Sugar().Debugf("%v %v %v %v", stat.Mode(), stat.Size(), stat.ModTime(), stat.Name())
+
+	slog.Debug("Storage directory", "mode", stat.Mode().String(), "size", stat.Size(), "modTime", stat.ModTime().String(), "name", stat.Name())
 
 	// Validate write permissions at startup
 	testFile := "__TEST_FILE__"
+
 	err = writeToDisk(testFile, []byte("test"))
 	if err != nil {
 		return err
 	}
+
 	err = os.RemoveAll(filepath.Join(path, testFile))
 	if err != nil {
 		return err
@@ -233,17 +243,16 @@ func debugStart() error {
 
 func main() {
 	dbg := os.Getenv("DEBUG")
-	var err error
-	if dbg != "" {
-		log, err = zap.NewDevelopment()
+
+	var sl *slog.Logger
+
+	if dbg == "" {
+		sl = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	} else {
-		log, err = zap.NewProduction()
+		sl = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-	log = log.Named("Glob")
-	defer log.Sync() // nolint:errcheck
+
+	slog.SetDefault(sl.With("name", "glob"))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -255,15 +264,17 @@ func main() {
 		path = filepath.Join(".", "globs")
 	}
 
-	err = os.MkdirAll(path, os.ModePerm)
+	err := os.MkdirAll(path, os.ModePerm)
 	if err != nil {
-		log.Fatal(err.Error())
+		slog.Error("Unable to create dir", "dir", path, "error", err.Error())
+		os.Exit(1)
 	}
 
 	if dbg != "" {
 		err := debugStart()
 		if err != nil {
-			log.Fatal(err.Error())
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 	}
 
@@ -273,8 +284,10 @@ func main() {
 	} else {
 		sizeLimitMb, err := strconv.Atoi(sizeLimitMbEnvVar)
 		if err != nil {
-			log.Fatal(err.Error())
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
+
 		sizeLimitBytes = int64(sizeLimitMb) << 20
 	}
 
@@ -290,15 +303,17 @@ func main() {
 	mux.Handle("DELETE /{file}", logger(deleteFile))
 
 	server := http.Server{
-		Addr:           ":" + port,
-		Handler:        mux,
-		MaxHeaderBytes: int(sizeLimitBytes),
+		Addr:              ":" + port,
+		Handler:           mux,
+		MaxHeaderBytes:    int(sizeLimitBytes),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Info("Listening on: http://0.0.0.0:" + port)
+	slog.Info("Listening on: http://0.0.0.0:" + port)
 
 	err = server.ListenAndServe()
 	if err != nil {
-		log.Fatal(err.Error())
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 }
